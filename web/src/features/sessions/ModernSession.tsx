@@ -1,6 +1,7 @@
 import { type ComponentProps } from "react";
 import { ConnectedSessionListBody } from "@/src/features/sessions/ConnectedSessionListBody";
 import { SessionFiltersBanner } from "@/src/features/sessions/SessionFiltersBanner";
+import { SessionViewTabs } from "@/src/features/sessions/SessionViewTabs";
 import { type FilterState } from "@langfuse/shared";
 
 import { ConnectedModernSessionBodyLegacy } from "@/src/features/sessions/ConnectedModernSessionBodyLegacy";
@@ -16,6 +17,8 @@ import {
 
 type ModernSessionProps = {
   viewMode: "conversational" | "list";
+  viewTabs: ComponentProps<typeof SessionViewTabs>;
+  onSaveView?: () => void;
   customization?: NonNullable<
     ComponentProps<typeof ConnectedModernSessionBodyTimeline>["customization"]
   > & {
@@ -59,6 +62,8 @@ type ModernSessionProps = {
 
 export function ModernSession({
   viewMode,
+  viewTabs,
+  onSaveView,
   customization,
   headerDividerTone,
   isTimelineEnabled,
@@ -121,12 +126,17 @@ export function ModernSession({
           </SessionReviewLeading>
         )}
       </SessionMetadataJsonPathControl>
-      {customization && customization.activeFilterCount > 0 && (
-        <SessionFiltersBanner
-          onEdit={customization.onCustomizeView}
-          onClear={customization.onClearFilters}
-        />
-      )}
+      <SessionViewTabs {...viewTabs} />
+      {customization &&
+        (customization.activeFilterCount > 0 ||
+          viewTabs.value !== "messages") && (
+          <SessionFiltersBanner
+            onEdit={customization.onCustomizeView}
+            onClear={customization.onClearFilters}
+            onSave={onSaveView}
+            hasFilters={customization.activeFilterCount > 0}
+          />
+        )}
       {isTimelineEnabled && viewMode === "list" && (
         <ConnectedSessionListBody
           {...sharedBodyProps}

@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { type ComponentProps, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ModernSession } from "@/src/features/sessions/ModernSession";
+import { SessionSidebar } from "@/src/features/sessions/components/SessionSidebar/SessionSidebar";
 
 vi.mock("@/src/features/sessions/ConnectedModernSessionBodyLegacy", () => ({
   ConnectedModernSessionBodyLegacy: () => <div>Legacy body</div>,
@@ -54,6 +55,16 @@ vi.mock("@/src/features/sessions/SessionMetadataJsonPathControl", () => ({
 
 const defaultProps = {
   viewMode: "conversational",
+  viewTabs: {
+    value: "messages",
+    hasUnsavedView: false,
+    savedViews: [],
+    onManageViews: vi.fn(),
+    onUnpin: vi.fn(),
+    onRemoveUnsaved: vi.fn(),
+    onValueChange: vi.fn(),
+    onCreate: vi.fn(),
+  },
   isTimelineEnabled: false,
   session: {
     countTraces: 0,
@@ -103,6 +114,134 @@ const defaultProps = {
 } satisfies ComponentProps<typeof ModernSession>;
 
 describe("ModernSession", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+  it("keeps sidebar search without the redundant customization icon", () => {
+    render(
+      <SessionSidebar
+        label="Session observations"
+        search={{
+          search: "",
+          onSearchChange: vi.fn(),
+          customization: { activeFilterCount: 1, onCustomizeView: vi.fn() },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("textbox", { name: "Search session" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Customize view" }),
+    ).not.toBeInTheDocument();
+  });
+  it("removes an unsaved view rather than unpinning it", () => {
+    render(
+      <ModernSession
+        {...defaultProps}
+        viewTabs={{
+          ...defaultProps.viewTabs,
+          value: "unsaved",
+          hasUnsavedView: true,
+        }}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove unsaved view" }),
+    );
+
+    expect(defaultProps.viewTabs.onRemoveUnsaved).toHaveBeenCalledOnce();
+    expect(defaultProps.viewTabs.onUnpin).not.toHaveBeenCalled();
+    expect(defaultProps.viewTabs.onValueChange).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Unpin Unsaved view" }),
+    ).not.toBeInTheDocument();
+  });
+  it("unpins a saved view without selecting its tab", () => {
+    render(
+      <ModernSession
+        {...defaultProps}
+        viewTabs={{
+          ...defaultProps.viewTabs,
+          savedViews: [{ id: "saved-view", name: "Generations" }],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Unpin Generations" }));
+
+    expect(defaultProps.viewTabs.onUnpin).toHaveBeenCalledWith("saved-view");
+    expect(defaultProps.viewTabs.onValueChange).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "Unpin Messages" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("always offers the manage views action, including without saved views", () => {
+    render(<ModernSession {...defaultProps} />);
+    fireEvent.click(screen.getByRole("button", { name: "Manage views" }));
+    expect(defaultProps.viewTabs.onManageViews).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole("button", { name: "Pin saved view" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("always displays Messages and an icon-only create action", () => {
+    render(<ModernSession {...defaultProps} />);
+
+    expect(screen.getByRole("tab", { name: "Messages" })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
+    const create = screen.getByRole("button", { name: "Create custom view" });
+    expect(create.textContent).toBe("");
+    fireEvent.click(create);
+    expect(defaultProps.viewTabs.onCreate).toHaveBeenCalled();
+  });
+
+  it("shows an unsaved tab and save action even without filters", () => {
+    const onSave = vi.fn();
+    render(
+      <ModernSession
+        {...defaultProps}
+        isTimelineEnabled
+        viewTabs={{
+          ...defaultProps.viewTabs,
+          value: "unsaved",
+          hasUnsavedView: true,
+        }}
+        customization={{
+          activeFilterCount: 0,
+          onCustomizeView: vi.fn(),
+          onClearFilters: vi.fn(),
+        }}
+        onSaveView={onSave}
+      />,
+    );
+    expect(screen.getByRole("tab", { name: "Unsaved view" })).toHaveAttribute(
+      "data-state",
+      "active",
+    );
+    expect(
+      screen.queryByText(
+        "Filters are active. Some session data may be hidden.",
+      ),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save view" }));
+    expect(onSave).toHaveBeenCalled();
+  });
+
   it("renders the list body with the shared header when selected", () => {
     render(
       <ModernSession {...defaultProps} isTimelineEnabled viewMode="list" />,
